@@ -1,0 +1,216 @@
+import time
+import random
+from flask import Flask, render_template, jsonify
+import sqlite3
+
+app = Flask(__name__)
+
+# Database setup
+conn = sqlite3.connect('water_quality.db', check_same_thread=False)
+c = conn.cursor()
+
+c.execute('''
+          CREATE TABLE IF NOT EXISTS water_quality
+          (timestamp DATETIME, pH REAL, turbidity REAL, temperature REAL, contamination_level REAL)
+          ''')
+conn.commit()
+
+# Mock sensor data
+sensor_data = {
+    'pH': random.uniform(6.5, 8.5),
+    'turbidity': random.uniform(1, 5),  # in NTU
+    'temperature': random.uniform(15, 25),  # in Celsius
+    'contamination_level': random.uniform(0, 100)  # in arbitrary units
+}
+
+def log_data():
+    """Log sensor data to the database."""
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    c.execute('''
+              INSERT INTO water_quality (timestamp, pH, turbidity, temperature, contamination_level)
+              VALUES (?, ?, ?, ?, ?)
+              ''', (timestamp, sensor_data['pH'], sensor_data['turbidity'], sensor_data['temperature'], sensor_data['contamination_level']))
+    conn.commit()
+
+def check_thresholds():
+    """Check if any sensor data exceeds safe thresholds."""
+    if sensor_data['pH'] < 6.5 or sensor_data['pH'] > 8.5:
+        print("Alert: pH level out of safe range!")
+    if sensor_data['turbidity'] > 5:
+        print("Alert: Turbidity exceeds safe limits!")
+    if sensor_data['temperature'] < 10 or sensor_data['temperature'] > 30:
+        print("Alert: Temperature out of safe range!")
+    if sensor_data['contamination_level'] > 50:
+        print("Alert: Contamination level too high!")
+
+def update_sensor_data():
+    """Simulate updating sensor data."""
+    sensor_data['pH'] = random.uniform(6.5, 8.5)
+    sensor_data['turbidity'] = random.uniform(1, 5)
+    sensor_data['temperature'] = random.uniform(15, 25)
+    sensor_data['contamination_level'] = random.uniform(0, 100)
+    log_data()
+    check_thresholds()
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/data')
+def get_data():
+    return jsonify(sensor_data)
+
+@app.route('/history')
+def get_history():
+    c.execute('''
+              SELECT * FROM water_quality ORDER BY timestamp DESC LIMIT 10
+              ''')
+    rows = c.fetchall()
+    history = [{'timestamp': row[0], 'pH': row[1], 'turbidity': row[2], 'temperature': row[3], 'contamination_level': row[4]} for row in rows]
+    return jsonify(history)
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Quality Monitoring Dashboard</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            color: #333;
+        }}
+        header {{
+            background-color: #4CAF50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }}
+        section {{
+            margin: 20px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 5px;
+        }}
+        h2 {{
+            color: #4CAF50;
+        }}
+        .data-box {{
+            display: flex;
+            justify-content: space-around;
+        }}
+        .data-item {{
+            text-align: center;
+            width: 30%;
+            padding: 10px;
+            background-color: #e0f7fa;
+            border-radius: 10px;
+        }}
+        footer {{
+            text-align: center;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+        }}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Water Quality Monitoring Dashboard</h1>
+        <p>Real-time monitoring and historical data</p>
+    </header>
+
+    <section>
+        <h2>Current Sensor Readings</h2>
+        <div class="data-box">
+            <div class="data-item">
+                <h3>pH Level</h3>
+                <p id="pH">0</p>
+            </div>
+            <div class="data-item">
+                <h3>Turbidity (NTU)</h3>
+                <p id="turbidity">0</p>
+            </div>
+            <div class="data-item">
+                <h3>Temperature (°C)</h3>
+                <p id="temperature">0</p>
+            </div>
+            <div class="data-item">
+                <h3>Contamination Level</h3>
+                <p id="contamination_level">0</p>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Historical Data (Last 10 Records)</h2>
+        <div class="data-box" id="history">
+            <!-- Historical data will be inserted here -->
+        </div>
+    </section>
+
+    <footer>
+        <p>&copy; 2024 Water Quality Monitoring System</p>
+    </footer>
+
+    <script>
+        function fetchData() {{
+            fetch('/data')
+                .then(response => response.json())
+                .then(data => {{
+                    document.getElementById('pH').innerText = data.pH.toFixed(2);
+                    document.getElementById('turbidity').innerText = data.turbidity.toFixed(2);
+                    document.getElementById('temperature').innerText = data.temperature.toFixed(2);
+                    document.getElementById('contamination_level').innerText = data.contamination_level.toFixed(2);
+                }});
+        }}
+
+        function fetchHistory() {{
+            fetch('/history')
+                .then(response => response.json())
+                .then(data => {{
+                    const historyDiv = document.getElementById('history');
+                    historyDiv.innerHTML = '';
+                    data.forEach(record => {{
+                        const recordDiv = document.createElement('div');
+                        recordDiv.className = 'data-item';
+                        recordDiv.innerHTML = `
+                            <h4>${{record.timestamp}}</h4>
+                            <p>pH: ${{record.pH.toFixed(2)}}</p>
+                            <p>Turbidity: ${{record.turbidity.toFixed(2)}} NTU</p>
+                            <p>Temperature: ${{record.temperature.toFixed(2)}} °C</p>
+                            <p>Contamination Level: ${{record.contamination_level.toFixed(2)}}</p>
+                        `;
+                        historyDiv.appendChild(recordDiv);
+                    }});
+                }});
+        }}
+
+        setInterval(fetchData, 1000);  // Fetch real-time data every second
+        setInterval(fetchHistory, 5000);  // Fetch historical data every 5 seconds
+    </script>
+</body>
+</html>
+"""
+
+# Save the HTML template
+with open('templates/index.html', 'w') as f:
+    f.write(HTML_TEMPLATE)
+
+if __name__ == '__main__':
+    print("Starting Water Quality Monitoring System...")
+    
+    # Simulate the system running every minute
+    while True:
+        update_sensor_data()
+        time.sleep(60)  # Wait for 1 minute before the next update
+        
+        # For Flask, run the app only if script is executed directly
+        app.run(debug=True)
